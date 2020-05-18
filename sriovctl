@@ -1,7 +1,7 @@
 
 import networkcard
-
-_WHITELIST_NICS = ['0000:00:09.0', '0000:00:0a.0']
+import time
+_WHITELIST_NICS = ['0000:02:00.0|vf1',]
 
 def enable_sriov(nic_list):
     """ Enable SRIOV for given enhanced PCI IDs

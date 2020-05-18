@@ -76,7 +76,7 @@ def is_sriov_nic(pci_handle):
     :returns: True on success, False otherwise
     """
     for item in pci_handle.split('|'):
-        if item.lower(.startswith('vf'):
+        if item.lower().startswith('vf'):
             return True
     return False
 
