@@ -1,0 +1,88 @@
+
+import networkcard
+
+_WHITELIST_NICS = ['0000:00:09.0', '0000:00:0a.0']
+
+def enable_sriov(nic_list):
+    """ Enable SRIOV for given enhanced PCI IDs
+
+    :param nic_list: A list of enhanced PCI IDs
+    """
+    # detect if sriov is required
+    sriov_nic = {}
+    for nic in nic_list:
+        print(nic)
+        if networkcard.is_sriov_nic(nic):
+            tmp_nic = nic.split('|')
+            if tmp_nic[0] in sriov_nic:
+                if int(tmp_nic[1][2:]) > sriov_nic[tmp_nic[0]]:
+                    sriov_nic[tmp_nic[0]] = int(tmp_nic[1][2:])
+            else:
+                sriov_nic.update({tmp_nic[0] : int(tmp_nic[1][2:])})
+        else:
+            print("NOT A SRIOV NIC")
+
+    # sriov is required for some NICs
+    if sriov_nic:
+        for nic in sriov_nic:
+            # check if SRIOV is supported and enough virt interfaces are available
+            if not networkcard.is_sriov_supported(nic) \
+                or networkcard.get_sriov_numvfs(nic) <= sriov_nic[nic]:
+                # if not, enable and set appropriate number of VFs
+                if not networkcard.set_sriov_numvfs(nic, sriov_nic[nic] + 1):
+                    raise RuntimeError('SRIOV cannot be enabled for NIC {}'.format(nic))
+                else:
+                    _LOGGER.debug("SRIOV enabled for NIC %s", nic)
+
+                # ensure that path to the bind tool is valid
+                #functions.settings_update_paths()
+
+                # WORKAROUND: it has been observed with IXGBE(VF) driver,
+                # that NIC doesn't correclty dispatch traffic to VFs based
+                # on their MAC address. Unbind and bind to the same driver
+                # solves this issue.
+                networkcard.reinit_vfs(nic)
+
+        # After SRIOV is enabled it takes some time until network drivers
+        # properly initialize all cards.
+        # Wait also in case, that SRIOV was already configured as it can be
+        # configured automatically just before vsperf execution.
+        time.sleep(2)
+
+        return True
+
+    return False
+
+
+def disable_sriov(nic_list):
+    """ Disable SRIOV for given PCI IDs
+
+    :param nic_list: A list of enhanced PCI IDs
+    """
+    for nic in nic_list:
+        if networkcard.is_sriov_nic(nic):
+            if not networkcard.set_sriov_numvfs(nic.split('|')[0], 0):
+                raise RuntimeError('SRIOV cannot be disabled for NIC {}'.format(nic))
+            else:
+                _LOGGER.debug("SRIOV disabled for NIC %s", nic.split('|')[0])
+
+def main():
+    wl_nics_orig = list(networkcard.check_pci(pci) for pci in _WHITELIST_NICS)
+    if enable_sriov(wl_nics_orig):
+        print("Successfully Enabled")
+    nic_list = []
+    for nic in wl_nics_orig:
+        tmp_nic = networkcard.get_nic_info(nic)
+        if tmp_nic:
+            nic_list.append({'pci' : tmp_nic,
+                             'type' : 'vf' if networkcard.get_sriov_pf(tmp_nic) else 'pf',
+                             'mac' : networkcard.get_mac(tmp_nic),
+                             'driver' : networkcard.get_driver(tmp_nic),
+                             'device' : networkcard.get_device_name(tmp_nic)})
+        else:
+            raise RuntimeError("Invalid network card PCI ID: '{}'".format(nic))
+    print(nic_list)
+
+
+if __name__ == "__main__":
+    main()
